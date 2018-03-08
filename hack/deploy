@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+
+if [ -z "${KUBECONFIG}" ]; then
+    export KUBECONFIG=~/.kube/config
+fi
+
+# CAUTION - setting NAMESPACE will deploy most components to the given namespace
+# however some are hardcoded to 'monitoring'. Only use if you have reviewed all manifests.
+
+if [ -z "${NAMESPACE}" ]; then
+    NAMESPACE=monitoring
+fi
+
+kubectl create namespace "$NAMESPACE"
+
+kctl() {
+    kubectl --namespace "$NAMESPACE" "$@"
+}
+
+kctl apply -f manifests/prometheus-operator
+
+# Wait for CRDs to be ready.
+printf "Waiting for Operator to register custom resource definitions..."
+until kctl get customresourcedefinitions servicemonitors.monitoring.coreos.com > /dev/null 2>&1; do sleep 1; printf "."; done
+until kctl get customresourcedefinitions prometheuses.monitoring.coreos.com > /dev/null 2>&1; do sleep 1; printf "."; done
+until kctl get servicemonitors.monitoring.coreos.com > /dev/null 2>&1; do sleep 1; printf "."; done
+until kctl get prometheuses.monitoring.coreos.com > /dev/null 2>&1; do sleep 1; printf "."; done
+echo "done!"
+
+kctl apply -f manifests/node-exporter
+find manifests/prometheus -type f ! -name prometheus-k8s-roles.yaml ! -name prometheus-k8s-role-bindings.yaml -exec kubectl --namespace "$NAMESPACE" apply -f {} \;
+kubectl apply -f manifests/prometheus/prometheus-k8s-roles.yaml
+kubectl apply -f manifests/prometheus/prometheus-k8s-role-bindings.yaml
+
+# Generate CA
+mkdir ~/certs
+openssl genrsa -des3 -passout pass:x -out ~/certs/dashboard.pass.key 2048
+openssl rsa -passin pass:x -in  ~/certs/dashboard.pass.key -out  ~/certs/dashboard.key
+# Writing RSA key
+rm  ~/certs/dashboard.pass.key
+openssl req -new -key  ~/certs/dashboard.key -out  ~/certs/dashboard.csr -subj "/C=CN/ST=SH/L=SH/O=SJTU"
+openssl x509 -req -sha256 -days 365 -in  ~/certs/dashboard.csr -signkey  ~/certs/dashboard.key -out  ~/certs/dashboard.crt
+
+# Create Dashboard
+kubectl create secret generic kubernetes-dashboard-certs --from-file=$HOME/certs -n kube-system
+kubectl apply -f manifests/dashboard/kubernetes-dashboard.yaml
+kubectl apply -f manifests/dashboard/dashboard-admin.yaml
