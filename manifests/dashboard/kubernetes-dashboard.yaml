@@ -114,7 +114,7 @@ spec:
     spec:
       containers:
       - name: kubernetes-dashboard
-        image: registry.cn-hangzhou.aliyuncs.com/sjtucit/kubernetes-dashboard-amd64:v1.0.1
+        image: registry.cn-hangzhou.aliyuncs.com/sjtucit/kubernetes-dashboard-amd64:v1.0.2
         ports:
         - containerPort: 8443
           protocol: TCP
